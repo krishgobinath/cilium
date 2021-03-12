@@ -1011,7 +1011,13 @@ func (n *linuxNodeHandler) nodeDelete(oldNode *nodeTypes.Node) error {
 	oldIP6 := oldNode.GetNodeIP(true)
 
 	if n.nodeConfig.EnableAutoDirectRouting {
-		n.deleteDirectRoute(oldNode.IPv4AllocCIDR, oldIP4)
+		oldNextHopIP4 := oldIP4
+		if option.Config.EnableWireguard {
+			if oldWgIP4 := oldNode.GetIPByType(addressing.NodeWireguardIP, false); oldWgIP4 != nil {
+				oldNextHopIP4 = oldWgIP4
+			}
+		}
+		n.deleteDirectRoute(oldNode.IPv4AllocCIDR, oldNextHopIP4)
 		n.deleteDirectRoute(oldNode.IPv6AllocCIDR, oldIP6)
 	}
 
@@ -1031,6 +1037,12 @@ func (n *linuxNodeHandler) nodeDelete(oldNode *nodeTypes.Node) error {
 
 	if n.nodeConfig.EnableIPSec {
 		n.deleteIPsec(oldNode)
+	}
+
+	if option.Config.EnableWireguard {
+		if err := n.wgAgent.DeletePeer(oldNode.Name); err != nil {
+			return err
+		}
 	}
 
 	return nil

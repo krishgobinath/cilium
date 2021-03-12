@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/cilium/cilium/pkg/cidr"
+	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/node"
 
 	"github.com/vishvananda/netlink"
@@ -17,10 +18,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-// TODO items:
-// - 2. read local peers and avoid overriding them
-// - 3. implement DeletePeer method
-
 const (
 	listenPort       = 51871
 	wgIfaceName      = "wg0"                          // TODO make config param
@@ -28,17 +25,20 @@ const (
 )
 
 type Agent struct {
+	lock.RWMutex
+
 	wgClient *wgctrl.Client
 	privKey  wgtypes.Key
 
 	wireguardV4CIDR *net.IPNet
 	wireguardIPv4   net.IP
 
-	isInit          bool
+	restoredPubKeys map[string]struct{}
 	finishedRestore bool
 
 	listenPort int
-	peers      map[string]wgtypes.PeerConfig
+
+	pubKeyByNodeName map[string]string // nodeName => pubKey
 }
 
 func NewAgent(privKey string, wgV4Net *net.IPNet) (*Agent, error) {
@@ -62,7 +62,9 @@ func NewAgent(privKey string, wgV4Net *net.IPNet) (*Agent, error) {
 		wireguardV4CIDR: wgV4Net,
 
 		listenPort: listenPort, // TODO make configurable
-		peers:      map[string]wgtypes.PeerConfig{},
+
+		pubKeyByNodeName: map[string]string{},
+		restoredPubKeys:  map[string]struct{}{},
 	}, nil
 }
 
@@ -121,28 +123,58 @@ func (a *Agent) Init() error {
 		return err
 	}
 
-	a.isInit = true
+	dev, err := a.wgClient.Device(wgIfaceName)
+	if err != nil {
+		return err
+	}
+	for _, peer := range dev.Peers {
+		a.restoredPubKeys[peer.PublicKey.String()] = struct{}{}
+	}
+
 	return nil
 }
 
 func (a *Agent) RestoreFinished() error {
+	a.Lock()
+	defer a.Unlock()
+
+	// Delete obsolete peers
+	for _, pubKeyHex := range a.pubKeyByNodeName {
+		delete(a.restoredPubKeys, pubKeyHex)
+	}
+	for pubKeyHex := range a.restoredPubKeys {
+		if err := a.deletePeerByPubKey(pubKeyHex); err != nil {
+			return err
+		}
+	}
+
 	a.finishedRestore = true
-	//return a.syncPeers()
+
 	return nil
 }
 
 func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex string, podCIDRv4 *net.IPNet, isLocal bool) error {
-	if !a.isInit {
-		panic("!!! TODO need to queue the event (probably not needed)")
-	}
+	a.Lock()
+	defer a.Unlock()
 
 	if isLocal {
 		return nil
 	}
 
-	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-	fmt.Println(nodeIPv4, wgIPv4, pubKeyHex, podCIDRv4)
-	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+	if !a.finishedRestore {
+		a.restoredPubKeys[pubKeyHex] = struct{}{}
+	}
+
+	// Handle pubKey change
+	if a.finishedRestore {
+		if prevPubKeyHex, found := a.pubKeyByNodeName[nodeName]; found && prevPubKeyHex != pubKeyHex {
+			// pubKeys differ, so delete old peer
+			if err := a.deletePeerByPubKey(prevPubKeyHex); err != nil {
+				return err
+			}
+			delete(a.pubKeyByNodeName, nodeName)
+		}
+	}
 
 	pubKey, err := wgtypes.ParseKey(pubKeyHex)
 	if err != nil {
@@ -169,30 +201,50 @@ func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex s
 		AllowedIPs:        allowedIPs,
 		ReplaceAllowedIPs: true,
 	}
-
-	a.peers[nodeName] = peerConfig
-
 	cfg := &wgtypes.Config{ReplacePeers: false, Peers: []wgtypes.PeerConfig{peerConfig}}
 	if err := a.wgClient.ConfigureDevice(wgIfaceName, *cfg); err != nil {
 		return err
 	}
 
-	//return a.syncPeers()
+	a.pubKeyByNodeName[nodeName] = pubKeyHex
 
 	return nil
 }
 
-func (a *Agent) syncPeers() error {
+func (a *Agent) DeletePeer(nodeName string) error {
+	a.Lock()
+	defer a.Unlock()
+
+	pubKeyHex, found := a.pubKeyByNodeName[nodeName]
+	if !found {
+		return fmt.Errorf("cannot find pubkey for %s node", nodeName)
+	}
+
+	if err := a.deletePeerByPubKey(pubKeyHex); err != nil {
+		return err
+	}
+
+	delete(a.pubKeyByNodeName, nodeName)
+
 	if !a.finishedRestore {
-		return nil
+		delete(a.restoredPubKeys, pubKeyHex)
 	}
 
-	peers := []wgtypes.PeerConfig{}
-	for _, peer := range a.peers {
-		peers = append(peers, peer)
+	return nil
+}
+
+func (a *Agent) deletePeerByPubKey(pubKeyHex string) error {
+	pubKey, err := wgtypes.ParseKey(pubKeyHex)
+	if err != nil {
+		return err
 	}
 
-	cfg := &wgtypes.Config{ReplacePeers: true, Peers: peers}
+	peerCfg := wgtypes.PeerConfig{
+		PublicKey: pubKey,
+		Remove:    true,
+	}
+
+	cfg := &wgtypes.Config{Peers: []wgtypes.PeerConfig{peerCfg}}
 	if err := a.wgClient.ConfigureDevice(wgIfaceName, *cfg); err != nil {
 		return err
 	}
