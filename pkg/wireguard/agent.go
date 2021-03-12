@@ -1,3 +1,17 @@
+// Copyright 2021 Authors of Cilium
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package wireguard
 
 import (
@@ -12,6 +26,7 @@ import (
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/node"
 
+	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/wgctrl"
@@ -31,7 +46,6 @@ type Agent struct {
 	privKey  wgtypes.Key
 
 	wireguardV4CIDR *net.IPNet
-	wireguardIPv4   net.IP
 
 	restoredPubKeys map[string]struct{}
 	finishedRestore bool
@@ -58,7 +72,6 @@ func NewAgent(privKey string, wgV4Net *net.IPNet) (*Agent, error) {
 		wgClient: wgClient,
 		privKey:  key,
 
-		wireguardIPv4:   nil, // set by node manager
 		wireguardV4CIDR: wgV4Net,
 
 		listenPort: listenPort, // TODO make configurable
@@ -74,13 +87,6 @@ func (a *Agent) Close() error {
 }
 
 func (a *Agent) Init() error {
-	// TODO check if it exists
-	if node.GetWireguardIPv4() == nil {
-		return fmt.Errorf("Failed to retrieve wireguard IPv4")
-	}
-
-	a.wireguardIPv4 = node.GetWireguardIPv4()
-
 	link := &netlink.Wireguard{LinkAttrs: netlink.LinkAttrs{Name: wgIfaceName}}
 	err := netlink.LinkAdd(link)
 	if err != nil && !errors.Is(err, unix.EEXIST) {
@@ -88,7 +94,7 @@ func (a *Agent) Init() error {
 	}
 
 	ip := &net.IPNet{
-		IP:   a.wireguardIPv4,
+		IP:   node.GetWireguardIPv4(),
 		Mask: a.wireguardV4CIDR.Mask,
 	}
 
@@ -143,10 +149,13 @@ func (a *Agent) RestoreFinished() error {
 		delete(a.restoredPubKeys, pubKeyHex)
 	}
 	for pubKeyHex := range a.restoredPubKeys {
+		log.WithField("pubKey", pubKeyHex).Info("Removing obsolete peer")
 		if err := a.deletePeerByPubKey(pubKeyHex); err != nil {
 			return err
 		}
 	}
+
+	log.Info("Finished restore")
 
 	a.finishedRestore = true
 
@@ -175,6 +184,13 @@ func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex s
 			delete(a.pubKeyByNodeName, nodeName)
 		}
 	}
+
+	log.WithFields(logrus.Fields{
+		"nodeName": nodeName,
+		"nodeIP4":  nodeIPv4,
+		"pubKey":   pubKeyHex,
+		"podCIDR":  podCIDRv4,
+	}).Info("Adding peer")
 
 	pubKey, err := wgtypes.ParseKey(pubKeyHex)
 	if err != nil {
@@ -234,6 +250,8 @@ func (a *Agent) DeletePeer(nodeName string) error {
 }
 
 func (a *Agent) deletePeerByPubKey(pubKeyHex string) error {
+	log.WithField("pubKey", pubKeyHex).Info("Removing peer")
+
 	pubKey, err := wgtypes.ParseKey(pubKeyHex)
 	if err != nil {
 		return err

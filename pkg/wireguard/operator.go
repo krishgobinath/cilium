@@ -1,3 +1,17 @@
+// Copyright 2021 Authors of Cilium
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package wireguard
 
 import (
@@ -9,6 +23,7 @@ import (
 	"github.com/cilium/cilium/pkg/node/addressing"
 
 	"github.com/cilium/ipam/service/ipallocator"
+	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/util/retry"
 )
 
@@ -60,7 +75,7 @@ func (o *Operator) DeleteNode(n *v2.CiliumNode) {
 	defer o.Unlock()
 
 	if o.restoring {
-		panic("INVALID STATE") // TODO log err
+		log.WithField("nodeName", n.ObjectMeta.Name).Warn("Received node delete while restoring")
 	}
 
 	found := false
@@ -81,6 +96,11 @@ func (o *Operator) DeleteNode(n *v2.CiliumNode) {
 		}
 		o.ipAlloc.Release(ip)
 	}
+
+	log.WithFields(logrus.Fields{
+		"nodeName": n.ObjectMeta.Name,
+		"ip":       ip,
+	}).Info("Released wireguard IP")
 }
 
 func (o *Operator) Resync() error {
@@ -148,5 +168,11 @@ func (o *Operator) setCiliumNodeIP(nodeName string, ip net.IP) error {
 		_, err = o.ciliumNodeUpdater.Update(nil, node)
 		return err
 	})
+
+	log.WithFields(logrus.Fields{
+		"nodeName": nodeName,
+		"ip":       ip,
+	}).Info("Set wireguard IP")
+
 	return err
 }
