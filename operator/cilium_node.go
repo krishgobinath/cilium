@@ -42,7 +42,7 @@ var (
 )
 
 func startSynchronizingCiliumNodes(nodeManager allocator.NodeEventHandler,
-	wgManager *wireguard.Manager) {
+	wgOperator *wireguard.Operator) {
 
 	log.Info("Starting to synchronize CiliumNode custom resources")
 
@@ -60,8 +60,8 @@ func startSynchronizingCiliumNodes(nodeManager allocator.NodeEventHandler,
 				if node := k8s.ObjToCiliumNode(obj); node != nil {
 					// node is deep copied before it is stored in pkg/aws/eni
 					nodeManager.Create(node)
-					if wgManager != nil {
-						if err := wgManager.AddNode(node); err != nil {
+					if wgOperator != nil {
+						if err := wgOperator.AddNode(node); err != nil {
 							log.WithError(err).Warn("Wireguard add node")
 						}
 					}
@@ -77,8 +77,8 @@ func startSynchronizingCiliumNodes(nodeManager allocator.NodeEventHandler,
 						}
 						// node is deep copied before it is stored in pkg/aws/eni
 						nodeManager.Update(node)
-						if wgManager != nil {
-							if err := wgManager.UpdateNode(node); err != nil {
+						if wgOperator != nil {
+							if err := wgOperator.UpdateNode(node); err != nil {
 								log.WithError(err).Warn("Wireguard update node")
 							}
 						}
@@ -88,8 +88,8 @@ func startSynchronizingCiliumNodes(nodeManager allocator.NodeEventHandler,
 			DeleteFunc: func(obj interface{}) {
 				if node := k8s.ObjToCiliumNode(obj); node != nil {
 					nodeManager.Delete(node.Name)
-					if wgManager != nil {
-						wgManager.DeleteNode(node)
+					if wgOperator != nil {
+						wgOperator.DeleteNode(node)
 					}
 				}
 			},

@@ -17,7 +17,7 @@ type CiliumNodeUpdater interface {
 	Get(node string) (*v2.CiliumNode, error)
 }
 
-type Manager struct {
+type Operator struct {
 	lock.RWMutex
 	ipAlloc                   *ipallocator.Range
 	restoring                 bool
@@ -25,13 +25,13 @@ type Manager struct {
 	ciliumNodeUpdater         CiliumNodeUpdater
 }
 
-func NewManager(subnetV4 *net.IPNet, ciliumNodeUpdater CiliumNodeUpdater) (*Manager, error) {
+func NewOperator(subnetV4 *net.IPNet, ciliumNodeUpdater CiliumNodeUpdater) (*Operator, error) {
 	alloc, err := ipallocator.NewCIDRRange(subnetV4)
 	if err != nil {
 		return nil, err
 	}
 
-	m := &Manager{
+	m := &Operator{
 		ipAlloc:                   alloc,
 		restoring:                 true,
 		allocForNodesAfterRestore: make(map[string]struct{}),
@@ -41,25 +41,25 @@ func NewManager(subnetV4 *net.IPNet, ciliumNodeUpdater CiliumNodeUpdater) (*Mana
 	return m, nil
 }
 
-func (m *Manager) AddNode(n *v2.CiliumNode) error {
-	m.Lock()
-	defer m.Unlock()
+func (o *Operator) AddNode(n *v2.CiliumNode) error {
+	o.Lock()
+	defer o.Unlock()
 
-	return m.allocateIP(n, false)
+	return o.allocateIP(n, false)
 }
 
-func (m *Manager) UpdateNode(n *v2.CiliumNode) error {
-	m.Lock()
-	defer m.Unlock()
+func (o *Operator) UpdateNode(n *v2.CiliumNode) error {
+	o.Lock()
+	defer o.Unlock()
 
-	return m.allocateIP(n, true)
+	return o.allocateIP(n, true)
 }
 
-func (m *Manager) DeleteNode(n *v2.CiliumNode) {
-	m.Lock()
-	defer m.Unlock()
+func (o *Operator) DeleteNode(n *v2.CiliumNode) {
+	o.Lock()
+	defer o.Unlock()
 
-	if m.restoring {
+	if o.restoring {
 		panic("INVALID STATE") // TODO log err
 	}
 
@@ -76,24 +76,24 @@ func (m *Manager) DeleteNode(n *v2.CiliumNode) {
 	}
 
 	if found {
-		if m.restoring {
-			delete(m.allocForNodesAfterRestore, n.ObjectMeta.Name)
+		if o.restoring {
+			delete(o.allocForNodesAfterRestore, n.ObjectMeta.Name)
 		}
-		m.ipAlloc.Release(ip)
+		o.ipAlloc.Release(ip)
 	}
 }
 
-func (m *Manager) Resync() error {
-	m.Lock()
-	defer m.Unlock()
+func (o *Operator) Resync() error {
+	o.Lock()
+	defer o.Unlock()
 
-	m.restoring = false
-	for nodeName := range m.allocForNodesAfterRestore {
-		ip, err := m.ipAlloc.AllocateNext()
+	o.restoring = false
+	for nodeName := range o.allocForNodesAfterRestore {
+		ip, err := o.ipAlloc.AllocateNext()
 		if err != nil {
 			return fmt.Errorf("failed to allocate IP addr for node %s: %w", nodeName)
 		}
-		if err := m.setCiliumNodeIP(nodeName, ip); err != nil {
+		if err := o.setCiliumNodeIP(nodeName, ip); err != nil {
 			return err
 		}
 	}
@@ -101,8 +101,8 @@ func (m *Manager) Resync() error {
 	return nil
 }
 
-// allocateIP must be called with *Manager mutex being held.
-func (m *Manager) allocateIP(n *v2.CiliumNode, isUpdate bool) error {
+// allocateIP must be called with *Operator mutex being held.
+func (o *Operator) allocateIP(n *v2.CiliumNode, isUpdate bool) error {
 	found := false
 	var ip net.IP
 	for _, addr := range n.Spec.Addresses {
@@ -115,23 +115,21 @@ func (m *Manager) allocateIP(n *v2.CiliumNode, isUpdate bool) error {
 		}
 	}
 
-	fmt.Println("!!! found", found, ip)
-
 	if !found {
-		if m.restoring {
-			m.allocForNodesAfterRestore[n.ObjectMeta.Name] = struct{}{}
+		if o.restoring {
+			o.allocForNodesAfterRestore[n.ObjectMeta.Name] = struct{}{}
 		} else {
-			ip, err := m.ipAlloc.AllocateNext()
+			ip, err := o.ipAlloc.AllocateNext()
 			if err != nil {
 				return fmt.Errorf("failed to allocate IP addr for node %s: %w", n.ObjectMeta.Name)
 			}
 
-			if err := m.setCiliumNodeIP(n.ObjectMeta.Name, ip); err != nil {
+			if err := o.setCiliumNodeIP(n.ObjectMeta.Name, ip); err != nil {
 				return err
 			}
 		}
 	} else if !isUpdate {
-		if err := m.ipAlloc.Allocate(ip); err != nil {
+		if err := o.ipAlloc.Allocate(ip); err != nil {
 			return fmt.Errorf("failed to re-allocate IP addr %s for node %s: %w", ip, n.ObjectMeta.Name, err)
 		}
 	}
@@ -139,17 +137,16 @@ func (m *Manager) allocateIP(n *v2.CiliumNode, isUpdate bool) error {
 	return nil
 }
 
-func (m *Manager) setCiliumNodeIP(nodeName string, ip net.IP) error {
+func (o *Operator) setCiliumNodeIP(nodeName string, ip net.IP) error {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		node, err := m.ciliumNodeUpdater.Get(nodeName)
+		node, err := o.ciliumNodeUpdater.Get(nodeName)
 		if err != nil {
 			return err
 		}
 
 		node.Spec.Addresses = append(node.Spec.Addresses, v2.NodeAddress{Type: addressing.NodeWireguardIP, IP: ip.String()})
-		_, err = m.ciliumNodeUpdater.Update(nil, node)
+		_, err = o.ciliumNodeUpdater.Update(nil, node)
 		return err
 	})
 	return err
-
 }

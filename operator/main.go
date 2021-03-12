@@ -362,12 +362,12 @@ func onOperatorStartLeading(ctx context.Context) {
 
 	var (
 		nodeManager *allocator.NodeEventHandler
-		wgManager   *wireguard.Manager
+		wgOperator  *wireguard.Operator
 		err         error
 	)
 
 	if option.Config.EnableWireguard {
-		wgManager, err = wireguard.NewManager(option.Config.WireguardSubnetV4, &ciliumNodeUpdateImplementation{})
+		wgOperator, err = wireguard.NewOperator(option.Config.WireguardSubnetV4, &ciliumNodeUpdateImplementation{})
 	}
 
 	log.WithField(logfields.Mode, option.Config.IPAM).Info("Initializing IPAM")
@@ -388,7 +388,7 @@ func onOperatorStartLeading(ctx context.Context) {
 			log.WithError(err).Fatalf("Unable to start %s allocator", ipamMode)
 		}
 
-		startSynchronizingCiliumNodes(nm, wgManager)
+		startSynchronizingCiliumNodes(nm, wgOperator)
 		nodeManager = &nm
 
 		switch ipamMode {
@@ -409,13 +409,13 @@ func onOperatorStartLeading(ctx context.Context) {
 			nm.Resync(context.Background(), time.Time{})
 		}
 	default:
-		startSynchronizingCiliumNodes(NOPNodeManager, wgManager)
+		startSynchronizingCiliumNodes(NOPNodeManager, wgOperator)
 		nodeManager = &NOPNodeManager
 	}
 
-	if wgManager != nil {
+	if wgOperator != nil {
 		<-k8sCiliumNodesCacheSynced
-		if err := wgManager.Resync(); err != nil {
+		if err := wgOperator.Resync(); err != nil {
 			log.WithError(err).Warn("Failed to allocate wireguard IP addrs")
 		}
 	}
