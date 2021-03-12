@@ -18,9 +18,6 @@ import (
 )
 
 // TODO items:
-// - 1. Change pod CIDRs, no new route is added immediately
-// - 4. patch routes
-// - 1. avoid updating config if it hasn't changed
 // - 2. read local peers and avoid overriding them
 // - 3. implement DeletePeer method
 
@@ -130,7 +127,8 @@ func (a *Agent) Init() error {
 
 func (a *Agent) RestoreFinished() error {
 	a.finishedRestore = true
-	return a.syncPeers()
+	//return a.syncPeers()
+	return nil
 }
 
 func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex string, podCIDRv4 *net.IPNet, isLocal bool) error {
@@ -166,14 +164,22 @@ func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex s
 	}
 
 	peerConfig := wgtypes.PeerConfig{
-		Endpoint:   epAddr,
-		PublicKey:  pubKey,
-		AllowedIPs: allowedIPs,
+		Endpoint:          epAddr,
+		PublicKey:         pubKey,
+		AllowedIPs:        allowedIPs,
+		ReplaceAllowedIPs: true,
 	}
 
 	a.peers[nodeName] = peerConfig
 
-	return a.syncPeers()
+	cfg := &wgtypes.Config{ReplacePeers: false, Peers: []wgtypes.PeerConfig{peerConfig}}
+	if err := a.wgClient.ConfigureDevice(wgIfaceName, *cfg); err != nil {
+		return err
+	}
+
+	//return a.syncPeers()
+
+	return nil
 }
 
 func (a *Agent) syncPeers() error {
