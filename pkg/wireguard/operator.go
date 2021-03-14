@@ -137,6 +137,15 @@ func (o *Operator) Resync() error {
 // allocateIP must be called with *Operator mutex being held.
 func (o *Operator) allocateIP(n *v2.CiliumNode) error {
 	nodeName := n.ObjectMeta.Name
+	allocated := false
+	defer func() {
+		if allocated {
+			log.WithFields(logrus.Fields{
+				"nodeName": nodeName,
+				"ip":       o.ipByNode[nodeName],
+			}).Info("Allocated wireguard IP")
+		}
+	}()
 
 	found := false
 	var ip net.IP
@@ -150,42 +159,41 @@ func (o *Operator) allocateIP(n *v2.CiliumNode) error {
 		}
 	}
 
-	fmt.Println("!!! allocateIP", nodeName, ip, found)
+	if o.restoring {
+		if !found {
+			o.allocForNodesAfterRestore[nodeName] = struct{}{}
+			return nil
+		}
+		o.ipByNode[nodeName] = ip
+	}
 
 	if !found {
-		if o.restoring {
-			o.allocForNodesAfterRestore[nodeName] = struct{}{}
-		} else {
-			ip, err := o.ipAlloc.AllocateNext()
-			if err != nil {
-				return fmt.Errorf("failed to allocate IP addr for node %s: %w", nodeName)
-			}
-
-			if err := o.setCiliumNodeIP(nodeName, ip); err != nil {
-				o.ipAlloc.Release(ip)
-				return err
-			}
-
-			o.ipByNode[nodeName] = ip
+		ip, err := o.ipAlloc.AllocateNext()
+		if err != nil {
+			return fmt.Errorf("failed to allocate IP addr for node %s: %w", nodeName)
 		}
-	} else {
-		if prevIP, found := o.ipByNode[nodeName]; found && !prevIP.Equal(ip) {
-			// Release prev IP and reallocate the new IP
-			o.ipAlloc.Release(prevIP)
-			delete(o.ipByNode, nodeName)
+		if err := o.setCiliumNodeIP(nodeName, ip); err != nil {
+			o.ipAlloc.Release(ip)
+			return err
 		}
+		o.ipByNode[nodeName] = ip
+		allocated = true
+
+		return nil
+	}
+
+	if prevIP, ok := o.ipByNode[nodeName]; ok && !prevIP.Equal(ip) {
+		// Release prev IP and reallocate the new IP
+		o.ipAlloc.Release(prevIP)
+		delete(o.ipByNode, nodeName)
 
 		if err := o.ipAlloc.Allocate(ip); err != nil {
 			return fmt.Errorf("failed to re-allocate IP addr %s for node %s: %w", ip, nodeName, err)
 		}
 
 		o.ipByNode[nodeName] = ip
+		allocated = true
 	}
-
-	log.WithFields(logrus.Fields{
-		"nodeName": nodeName,
-		"ip":       o.ipByNode[nodeName],
-	}).Info("Allocated wireguard IP")
 
 	return nil
 }
