@@ -175,14 +175,13 @@ func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex s
 	}
 
 	// Handle pubKey change
-	if a.finishedRestore {
-		if prevPubKeyHex, found := a.pubKeyByNodeName[nodeName]; found && prevPubKeyHex != pubKeyHex {
-			// pubKeys differ, so delete old peer
-			if err := a.deletePeerByPubKey(prevPubKeyHex); err != nil {
-				return err
-			}
-			delete(a.pubKeyByNodeName, nodeName)
+	if prevPubKeyHex, found := a.pubKeyByNodeName[nodeName]; found && prevPubKeyHex != pubKeyHex {
+		log.WithField("nodeName", nodeName).Info("Pubkey has changed")
+		// pubKeys differ, so delete old peer
+		if err := a.deletePeerByPubKey(prevPubKeyHex); err != nil {
+			return err
 		}
+		delete(a.pubKeyByNodeName, nodeName)
 	}
 
 	log.WithFields(logrus.Fields{
