@@ -17,7 +17,6 @@ package wireguard
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"strconv"
@@ -35,8 +34,8 @@ import (
 
 const (
 	listenPort       = 51871
-	wgIfaceName      = "wg0"                          // TODO make config param
-	PubKeyAnnotation = "io.cilium.network.wg-pub-key" // TODO use consts from other pkg
+	IfaceName        = "cilium_wg0"
+	PubKeyAnnotation = "io.cilium.network.wg-pub-key"
 )
 
 type Agent struct {
@@ -74,7 +73,7 @@ func NewAgent(privKey string, wgV4Net *net.IPNet) (*Agent, error) {
 
 		wireguardV4CIDR: wgV4Net,
 
-		listenPort: listenPort, // TODO make configurable
+		listenPort: listenPort,
 
 		pubKeyByNodeName: map[string]string{},
 		restoredPubKeys:  map[string]struct{}{},
@@ -87,7 +86,7 @@ func (a *Agent) Close() error {
 }
 
 func (a *Agent) Init() error {
-	link := &netlink.Wireguard{LinkAttrs: netlink.LinkAttrs{Name: wgIfaceName}}
+	link := &netlink.Wireguard{LinkAttrs: netlink.LinkAttrs{Name: IfaceName}}
 	err := netlink.LinkAdd(link)
 	if err != nil && !errors.Is(err, unix.EEXIST) {
 		return err
@@ -121,7 +120,7 @@ func (a *Agent) Init() error {
 		ListenPort:   &a.listenPort,
 		ReplacePeers: false,
 	}
-	if err := a.wgClient.ConfigureDevice(wgIfaceName, *cfg); err != nil {
+	if err := a.wgClient.ConfigureDevice(IfaceName, *cfg); err != nil {
 		return err
 	}
 
@@ -129,7 +128,7 @@ func (a *Agent) Init() error {
 		return err
 	}
 
-	dev, err := a.wgClient.Device(wgIfaceName)
+	dev, err := a.wgClient.Device(IfaceName)
 	if err != nil {
 		return err
 	}
@@ -217,7 +216,7 @@ func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex s
 		ReplaceAllowedIPs: true,
 	}
 	cfg := &wgtypes.Config{ReplacePeers: false, Peers: []wgtypes.PeerConfig{peerConfig}}
-	if err := a.wgClient.ConfigureDevice(wgIfaceName, *cfg); err != nil {
+	if err := a.wgClient.ConfigureDevice(IfaceName, *cfg); err != nil {
 		return err
 	}
 
@@ -262,7 +261,7 @@ func (a *Agent) deletePeerByPubKey(pubKeyHex string) error {
 	}
 
 	cfg := &wgtypes.Config{Peers: []wgtypes.PeerConfig{peerCfg}}
-	if err := a.wgClient.ConfigureDevice(wgIfaceName, *cfg); err != nil {
+	if err := a.wgClient.ConfigureDevice(IfaceName, *cfg); err != nil {
 		return err
 	}
 
@@ -270,14 +269,14 @@ func (a *Agent) deletePeerByPubKey(pubKeyHex string) error {
 }
 
 func loadOrGeneratePrivKey(filePath string) (key wgtypes.Key, err error) {
-	bytes, err := ioutil.ReadFile(filePath)
+	bytes, err := os.ReadFile(filePath)
 	if os.IsNotExist(err) {
 		key, err = wgtypes.GeneratePrivateKey()
 		if err != nil {
 			return wgtypes.Key{}, fmt.Errorf("failed to generate wg private key: %w", err)
 		}
 
-		err = ioutil.WriteFile(filePath, key[:], os.ModePerm) // TODO fix do not use 777 for priv key
+		err = os.WriteFile(filePath, key[:], 600)
 		if err != nil {
 			return wgtypes.Key{}, fmt.Errorf("failed to save wg private key: %w", err)
 		}
