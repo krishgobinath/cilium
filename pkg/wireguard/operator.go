@@ -101,9 +101,6 @@ func (o *Operator) DeleteNode(n *v2.CiliumNode) {
 	}
 
 	if found {
-		if o.restoring {
-			delete(o.allocForNodesAfterRestore, nodeName)
-		}
 		o.ipAlloc.Release(ip)
 		delete(o.ipByNode, nodeName)
 
@@ -159,12 +156,9 @@ func (o *Operator) allocateIP(n *v2.CiliumNode) error {
 		}
 	}
 
-	if o.restoring {
-		if !found {
-			o.allocForNodesAfterRestore[nodeName] = struct{}{}
-			return nil
-		}
-		o.ipByNode[nodeName] = ip
+	if o.restoring && !found {
+		o.allocForNodesAfterRestore[nodeName] = struct{}{}
+		return nil
 	}
 
 	if !found {
@@ -182,17 +176,24 @@ func (o *Operator) allocateIP(n *v2.CiliumNode) error {
 		return nil
 	}
 
-	if prevIP, ok := o.ipByNode[nodeName]; ok && !prevIP.Equal(ip) {
-		// Release prev IP and reallocate the new IP
-		o.ipAlloc.Release(prevIP)
-		delete(o.ipByNode, nodeName)
+	if prevIP, ok := o.ipByNode[nodeName]; ok {
+		if !prevIP.Equal(ip) {
+			// Release prev IP and reallocate the new IP
+			o.ipAlloc.Release(prevIP)
+			delete(o.ipByNode, nodeName)
 
-		if err := o.ipAlloc.Allocate(ip); err != nil {
-			return fmt.Errorf("failed to re-allocate IP addr %s for node %s: %w", ip, nodeName, err)
+			if err := o.ipAlloc.Allocate(ip); err != nil {
+				return fmt.Errorf("failed to re-allocate IP addr %s for node %s: %w", ip, nodeName, err)
+			}
+
+			o.ipByNode[nodeName] = ip
+			allocated = true
 		}
-
+	} else {
+		if err := o.ipAlloc.Allocate(ip); err != nil {
+			return err
+		}
 		o.ipByNode[nodeName] = ip
-		allocated = true
 	}
 
 	return nil

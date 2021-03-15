@@ -40,18 +40,12 @@ const (
 
 type Agent struct {
 	lock.RWMutex
-
-	wgClient *wgctrl.Client
-	privKey  wgtypes.Key
-
-	wireguardV4CIDR *net.IPNet
-
-	restoredPubKeys map[string]struct{}
-	finishedRestore bool
-
-	listenPort int
-
+	wgClient         *wgctrl.Client
+	listenPort       int
+	privKey          wgtypes.Key
+	wireguardV4CIDR  *net.IPNet
 	pubKeyByNodeName map[string]string // nodeName => pubKey
+	restoredPubKeys  map[string]struct{}
 }
 
 func NewAgent(privKey string, wgV4Net *net.IPNet) (*Agent, error) {
@@ -68,13 +62,10 @@ func NewAgent(privKey string, wgV4Net *net.IPNet) (*Agent, error) {
 	}
 
 	return &Agent{
-		wgClient: wgClient,
-		privKey:  key,
-
-		wireguardV4CIDR: wgV4Net,
-
-		listenPort: listenPort,
-
+		wgClient:         wgClient,
+		privKey:          key,
+		wireguardV4CIDR:  wgV4Net,
+		listenPort:       listenPort,
 		pubKeyByNodeName: map[string]string{},
 		restoredPubKeys:  map[string]struct{}{},
 	}, nil
@@ -154,9 +145,9 @@ func (a *Agent) RestoreFinished() error {
 		}
 	}
 
-	log.Info("Finished restore")
+	a.restoredPubKeys = nil
 
-	a.finishedRestore = true
+	log.Info("Finished restore")
 
 	return nil
 }
@@ -167,10 +158,6 @@ func (a *Agent) UpdatePeer(nodeName string, wgIPv4, nodeIPv4 net.IP, pubKeyHex s
 
 	if isLocal {
 		return nil
-	}
-
-	if !a.finishedRestore {
-		a.restoredPubKeys[pubKeyHex] = struct{}{}
 	}
 
 	// Handle pubKey change
@@ -240,10 +227,6 @@ func (a *Agent) DeletePeer(nodeName string) error {
 
 	delete(a.pubKeyByNodeName, nodeName)
 
-	if !a.finishedRestore {
-		delete(a.restoredPubKeys, pubKeyHex)
-	}
-
 	return nil
 }
 
@@ -276,7 +259,7 @@ func loadOrGeneratePrivKey(filePath string) (key wgtypes.Key, err error) {
 			return wgtypes.Key{}, fmt.Errorf("failed to generate wg private key: %w", err)
 		}
 
-		err = os.WriteFile(filePath, key[:], 600)
+		err = os.WriteFile(filePath, key[:], 0600)
 		if err != nil {
 			return wgtypes.Key{}, fmt.Errorf("failed to save wg private key: %w", err)
 		}
