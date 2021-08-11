@@ -1430,6 +1430,7 @@ type DaemonConfig struct {
 	IPv6Range                     string
 	IPv4ServiceRange              string
 	IPv6ServiceRange              string
+	IpvlanMasterDevice            string
 	K8sAPIServer                  string
 	K8sKubeConfigPath             string
 	K8sClientBurst                int
@@ -2487,6 +2488,7 @@ func (c *DaemonConfig) Populate() {
 	c.IPTablesLockTimeout = viper.GetDuration(IPTablesLockTimeout)
 	c.IPTablesRandomFully = viper.GetBool(IPTablesRandomFully)
 	c.IPSecKeyFile = viper.GetString(IPSecKeyFileName)
+	c.IpvlanMasterDevice = viper.GetString(IpvlanMasterDevice)
 	c.ModePreFilter = viper.GetString(PrefilterMode)
 	c.EnableMonitor = viper.GetBool(EnableMonitorName)
 	c.MonitorAggregation = viper.GetString(MonitorAggregationName)
