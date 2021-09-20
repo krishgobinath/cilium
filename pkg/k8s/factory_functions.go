@@ -893,3 +893,68 @@ func ObjToCENP(obj interface{}) *cilium_v2alpha1.CiliumEgressNATPolicy {
 		Warn("Ignoring invalid v2 Cilium Egress Gateway Policy")
 	return nil
 }
+
+// ObjToCiliumEndpointBatch attempts to cast object to a CiliumEndpointBatch object
+// and returns a deep copy if the castin succeeds. Otherwise, nil is returned.
+func ObjToCiliumEndpointBatch(obj interface{}) *cilium_v2alpha1.CiliumEndpointBatch {
+	ceb, ok := obj.(*cilium_v2alpha1.CiliumEndpointBatch)
+	if ok {
+		return ceb
+	}
+	deletedObj, ok := obj.(cache.DeletedFinalStateUnknown)
+	if ok {
+		// Delete was not observed by the watcher but is
+		// removed from kube-apiserver. This is the last
+		// known state and the object no longer exists.
+		ceb, ok := deletedObj.Obj.(*cilium_v2alpha1.CiliumEndpointBatch)
+		if ok {
+			return ceb
+		}
+	}
+	log.WithField(logfields.Object, logfields.Repr(obj)).
+		Warn("Ignoring invalid CiliumEndpointBatch")
+	return nil
+}
+
+// convertCepToCoreCep converts a CiliumEndpoint to a CoreCiliumEndpoint
+// containing only a minimal set of entities used to
+func ConvertCepToCoreCep(cep *cilium_v2.CiliumEndpoint) *cilium_v2alpha1.CoreCiliumEndpoint {
+
+	// Copy Networking field into core CEP
+	var epNetworking *cilium_v2.EndpointNetworking
+	if cep.Status.Networking != nil {
+		epNetworking = new(cilium_v2.EndpointNetworking)
+		cep.Status.Networking.DeepCopyInto(epNetworking)
+	}
+	var identityID int64 = 0
+	if cep.Status.Identity != nil {
+		identityID = cep.Status.Identity.ID
+	}
+	return &cilium_v2alpha1.CoreCiliumEndpoint{
+		Name:       cep.GetName(),
+		Namespace:  cep.Namespace,
+		Networking: epNetworking,
+		Encryption: cep.Status.Encryption,
+		IdentityID: identityID,
+		NamedPorts: cep.Status.NamedPorts.DeepCopy(),
+	}
+}
+
+// ConvertCoreCiliumEndpointToTypesCiliumEndpoint converts CoreCiliumEndpoint object to types.CiliumEndpoint.
+func ConvertCoreCiliumEndpointToTypesCiliumEndpoint(ccep *cilium_v2alpha1.CoreCiliumEndpoint) *types.CiliumEndpoint {
+	return &types.CiliumEndpoint{
+		ObjectMeta: slim_metav1.ObjectMeta{
+			Name:      ccep.Name,
+			Namespace: ccep.Namespace,
+		},
+		Encryption: func() *cilium_v2.EncryptionSpec {
+			enc := ccep.Encryption
+			return &enc
+		}(),
+		Identity: &cilium_v2.EndpointIdentity{
+			ID: ccep.IdentityID,
+		},
+		Networking: ccep.Networking,
+		NamedPorts: ccep.NamedPorts,
+	}
+}

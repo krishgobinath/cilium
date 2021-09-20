@@ -12,6 +12,7 @@
 {{- $defaultBpfCtAnyMax := 262144 -}}
 {{- $enableIdentityMark := "true" -}}
 {{- $fragmentTracking := "true" -}}
+{{- $enableCiliumEndpointBatch := "true" -}}
 {{- $crdWaitTimeout := "5m" -}}
 {{- $defaultKubeProxyReplacement := "probe" -}}
 
@@ -743,6 +744,11 @@ data:
 {{- if hasKey .Values "netfilterCompatMode" }}
   netfilter-compatible-mode: {{ .Values.netfilterCompatMode | quote }}
 {{- end }}
+
+{{- if .Values.enableCiliumEndpointBatch }}
+  enable-cilium-endpoint-batch: "true"
+{{- end }}
+
 
 {{- if .Values.extraConfig }}
   {{ toYaml .Values.extraConfig | nindent 2 }}

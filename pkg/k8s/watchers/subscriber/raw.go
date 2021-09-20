@@ -41,7 +41,7 @@ func (l *RawList) NotifyUpdate(oldObj, newObj interface{}) {
 	}
 }
 
-// NotifyDelete notifies all the subscribers of an update event to an object.
+// NotifyDelete notifies all the subscribers of a delete event to an object.
 func (l *RawList) NotifyDelete(obj interface{}) {
 	l.RLock()
 	defer l.RUnlock()

@@ -301,5 +301,15 @@ func init() {
 	flags.Bool(option.SkipCRDCreation, false, "When true, Kubernetes Custom Resource Definitions will not be created")
 	option.BindEnv(option.SkipCRDCreation)
 
+	flags.Bool(option.EnableCiliumEndpointBatch, false, "If set to true, the CiliumEndpointBatch feature is enabled. If any CiliumEndpoints resources are created, updated, or deleted in the cluster, all those changes are broadcast as CiliumEndpointBatch updates to all of the Cilium agents.")
+	option.BindEnv(option.EnableCiliumEndpointBatch)
+
+	flags.Int(operatorOption.CEBMaxCepsInCeb, operatorOption.CEBMaxCepsInCebDefault, "Maximum number of CiliumEndpoints allowed in a CEB")
+	option.BindEnv(operatorOption.CEBMaxCepsInCeb)
+
+	flags.String(operatorOption.CEBBatchingMode, operatorOption.CEBBatchingModeDefault, "Batching mode define how ceps are grouped into a CEB")
+	flags.MarkHidden(operatorOption.CEBBatchingMode)
+	option.BindEnv(operatorOption.CEBBatchingMode)
+
 	viper.BindPFlags(flags)
 }

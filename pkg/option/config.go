@@ -1023,6 +1023,10 @@ const (
 	// allows to keep a Kubernetes node NotReady until Cilium is up and
 	// running and able to schedule endpoints.
 	WriteCNIConfigurationWhenReady = "write-cni-conf-when-ready"
+
+	// EnableCiliumEndpointBatch enables the cilium endpoint batching feature in
+	// Cilum operator and in cilium agent.
+	EnableCiliumEndpointBatch = "enable-cilium-endpoint-batch"
 )
 
 const (
@@ -1974,6 +1978,9 @@ type DaemonConfig struct {
 
 	// EnableICMPRules enables ICMP-based rule support for Cilium Network Policies.
 	EnableICMPRules bool
+
+	// EnableCiliumEndpointBatch enables the cilium endpoint batching feature.
+	EnableCiliumEndpointBatch bool
 }
 
 var (
@@ -2761,6 +2768,7 @@ func (c *DaemonConfig) Populate() {
 	c.SelectiveRegeneration = viper.GetBool(SelectiveRegeneration)
 	c.DisableCNPStatusUpdates = viper.GetBool(DisableCNPStatusUpdates)
 	c.EnableICMPRules = viper.GetBool(EnableICMPRules)
+	c.EnableCiliumEndpointBatch = viper.GetBool(EnableCiliumEndpointBatch)
 }
 
 func (c *DaemonConfig) populateDevices() {

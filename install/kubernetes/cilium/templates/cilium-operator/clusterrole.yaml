@@ -71,6 +71,7 @@ rules:
   - ciliumlocalredirectpolicies
   - ciliumlocalredirectpolicies/status
   - ciliumlocalredirectpolicies/finalizers
+  - ciliumendpointbatches
   verbs:
   - '*'
 - apiGroups:
